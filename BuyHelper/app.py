@@ -20,7 +20,6 @@ from PyQt5 import QtWidgets
 from traceback import print_exc
 from threading import Thread
 
-
 from selenium.webdriver import ChromeOptions
 from selenium import webdriver
 from selenium.webdriver.support import expected_conditions as EC
@@ -28,7 +27,12 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.common.by import By
 
 
-class Back:
+class ImgButton:
+    back_img = 'back.png'
+    buy_now_for_img = 'buy_now_for.png'
+    ok_img = 'ok.png'
+    no_result_img = 'no_result.png'
+
     def cv_imread(self, filePath):
         cv_img = cv2.imdecode(np.fromfile(filePath, dtype=np.uint8), -1)
         return cv_img
@@ -46,21 +50,46 @@ class Back:
             return center_pos
 
     def back(self):
+        return self.click(self.back_img)
+
+    def buy_now(self):
+        return self.click(self.buy_now_for_img)
+
+    def click_ok(self):
+        return self.click(self.ok_img)
+
+    def exists(self, btn_img, times, interval=.1):
+        for i in range(times):
+            img = ImageGrab.grab()
+            func_img_path = os.path.join('btn_img', btn_img)
+            temp_path = r'btn_img\temp.png'
+            img.save(temp_path)
+            pos = self.get_pos(temp_path, func_img_path)
+            if pos:
+                return pos
+            if i == times - 1:
+                return False
+            time.sleep(interval)
+
+    def click_form_pos(self, pos):
+        pyautogui.click(*pos)
+
+    def click(self, btn_img, interval=.1):
         for i in range(10):
             img = ImageGrab.grab()
-            img.save('temp.png')
-            pos = self.get_pos('temp.png', 'back.png')
+            func_img_path = os.path.join('btn_img', btn_img)
+            temp_path = r'btn_img\temp.png'
+            img.save(temp_path)
+            pos = self.get_pos(temp_path, func_img_path)
             if pos:
                 pyautogui.click(*pos)
                 return True
             if i == 9:
                 return False
-            time.sleep(.5)
+            time.sleep(interval)
 
 
-def back():
-    back = Back()
-    return back.back()
+button = ImgButton()
 
 
 class UI(QtWidgets.QWidget):
@@ -68,7 +97,7 @@ class UI(QtWidgets.QWidget):
 
     def __init__(self):
         super().__init__()
-        self.title = '扫货助手V2.1'
+        self.title = '扫货助手V2.3'
         self.left = 300
         self.top = 300
         self.width = 700
@@ -158,6 +187,7 @@ class App(UI):
             # self.textbox_log.insertPlainText(f'{now_time()}球员：Michael Jeffrey Jordan购买成功!价格:35000\n')
             # self.textbox_log.setText('456\n') # 线程里不能这样
             self.btn_login.setEnabled(True)
+
         thread = Thread(target=func)
         thread.start()
 
@@ -176,25 +206,22 @@ class App(UI):
                     self.fill_price(search_time)
                     time.sleep(.1)
                     self.driver.find_element_by_xpath('//button[text()="Search"]').click()
-                    time.sleep(.2)
-                    no_result = False
+                    time.sleep(.1)
+                    flag = False
+                    s = time.time()
                     result_length_js = "return document.getElementsByClassName('name').length"
                     no_result_length_js = "return document.getElementsByClassName('no-results-icon').length"
-                    for i in range(30):
-                        if self.driver.execute_script(result_length_js) > 0 and i == 1:
+                    for i in range(60):
+                        if self.driver.execute_script(result_length_js) > 0 and i >= 1:
                             break
-                        if self.driver.execute_script(no_result_length_js) > 0 and i == 3:
-                            no_result = True
+                        if self.driver.execute_script(no_result_length_js) > 0 and i >= 1:
+                            flag = True
                             break
-                        time.sleep(.1)
-                    if no_result:
-                        back()
-                        time.sleep(.2)
-                        continue
-
-                    if self.driver.execute_script(result_length_js) == 0:
-                        back()
-                        time.sleep(.2)
+                        time.sleep(.05)
+                    print('检查搜索结果耗时：', time.time() - s)
+                    if flag:
+                        self.log('本次搜索结果为空，自动开始下次搜索')
+                        button.back()
                         continue
                     # 接下来检索搜索到结果
                     can_buy = self.driver.find_element_by_xpath('//button[text()="Make Bid"]').get_attribute('class')
@@ -202,15 +229,15 @@ class App(UI):
                         js = 'return document.getElementsByClassName("listFUTItem has-auction-data selected")[0].' \
                              'getElementsByClassName("currency-coins value")[2].innerText'
                         res_price = self.driver.execute_script(js)
+                        s = time.time()
                         xpath = '//button[text()="Buy Now for %s"]' % res_price
-                        self.log('开始点击购买')
                         for j in range(20):
                             try:
                                 self.driver.find_element_by_xpath(xpath).click()
                                 break
                             except Exception as e:
                                 if j == 19:
-                                    self.log('开始点击购买失败 %s' % e)
+                                    self.log('购买失败')
                                     print_exc()
                                     raise e
                                 time.sleep(.1)
@@ -223,6 +250,7 @@ class App(UI):
                                     print_exc()
                                     self.log('点击确认购买ok出现错误 %s' % e)
                                     raise e
+                        print('购买耗时', time.time() - s)
                         time.sleep(2)
                         success = self.driver.execute_script(
                             'return document.getElementsByClassName("ut-item-details--metadata")[0].innerText')
@@ -233,7 +261,7 @@ class App(UI):
                             break
                         else:
                             self.log('本次购买失败！开始下一轮购买')
-                            back()
+                            button.back()
                             time.sleep(.2)
                             continue
                     else:
@@ -241,9 +269,10 @@ class App(UI):
                 except Exception as ex:
                     print_exc()
                     self.log('购买出现错误，请手动返回到搜索页面开始下一轮购买 %s' % ex)
-                    back()
+                    button.back()
                     time.sleep(.2)
             self.btn_start.setEnabled(True)
+
         self.start_thread = Thread(target=func)
         self.start_thread.start()
         # self.textbox_log.insertPlainText(f'{now_time()}球员：Michael Jeffrey Jordan购买成功!价格:35000\n')
